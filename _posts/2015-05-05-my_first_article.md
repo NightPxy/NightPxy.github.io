@@ -1,5 +1,0 @@
----
-title: Hello, My Blog
----
-
-{{ page.title }}
