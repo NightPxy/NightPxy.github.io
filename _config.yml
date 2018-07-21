@@ -1,13 +1,13 @@
 # Site settings
-name: Less Or More
-email: luoyan35714@126.com
-author: Freud Kang
-url: http://www.hifreud.com
-resume_site: http://www.hifreud.com/Resume.io/
-github: https://github.com/luoyan35714/
+name: NightPxy 个人技术博客
+email: 38695281@qq.com
+author: NightPxy
+url: https://github.com/NightPxy/
+resume_site: https://nightpxy.github.io
+github: https://github.com/NightPxy/
 baseurl: ""
-description: Actually, less is more!
-meta_description: 康志华;个人博客;学而不思则罔;思而不学则殆;生命不止;折腾不休
+description: NightPxy 个人技术博客
+meta_description: NightPxy
 motto: It's our wits that make us men.
 banner: 学而不思则罔，思而不学则殆。
 
