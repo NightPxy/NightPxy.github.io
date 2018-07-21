@@ -1,12 +1,12 @@
 # Site settings
-name: NightPxy 个人技术博客
+name: NightPxy 
 email: 38695281@qq.com
 author: NightPxy
 url: https://github.com/NightPxy/
 resume_site: https://nightpxy.github.io
 github: https://github.com/NightPxy/
 baseurl: ""
-description: NightPxy 个人技术博客
+description: 个人技术博客
 meta_description: NightPxy
 motto: It's our wits that make us men.
 banner: 学而不思则罔，思而不学则殆。
