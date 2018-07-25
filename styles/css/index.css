@@ -303,6 +303,8 @@ cite {
 .text-center {
   text-align: center;
 }
+
+/*
 h1,
 h2,
 h3,
@@ -399,7 +401,7 @@ h5,
 h6,
 .h6 {
   font-size: 12px;
-}
+} */
 .page-header {
   padding-bottom: 9px;
   margin: 40px 0 20px;
