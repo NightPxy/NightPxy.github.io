@@ -68,14 +68,16 @@ Spark依据RDD转换中,父RDD和子RDD分区的依赖关系,将转换的依赖�
 > 底层一般转化为 MapPartitionsRDD  
 
 
-***map***  元素一对一转换 所以子RDD的元素数量与父RDD一一对应  
+##### map  
+元素一对一转换 所以子RDD的元素数量与父RDD一一对应  
 ```scala
 val rdd = sc.parallelize(Seq("aa bb","cc dd","ee ff"),2)
 rdd.map(rec=>rec.split(" ")>).collect().map(println(_))
 //返回结果是rec.split(" ")结果(一维数组)=>[["aa","bb"],["cc","dd"]]
 ```
 
-***flatMap***  元素一对一转换为一个可迭代的元素,并将迭代元素扁平化  
+##### flatMap  
+元素一对一转换为一个可迭代的元素,并将迭代元素扁平化  
 ```scala
 val rdd = sc.parallelize(Seq("aa bb","cc"),2)
 rdd.flatMap(rec=>rec.split(" ")).collect().map(println(_));
@@ -86,7 +88,8 @@ rdd.flatMap(rec=>rec.split(" ")).collect().map(println(_));
 //rdd.flatMap(rec=>(rec,1)).collect().map(println(_));　　　
 ```
 
-***mapPartitions***  分区不变,对分区内元素进行迭代操作  
+##### mapPartitions  
+分区不变,对分区内元素进行迭代操作  
 ```scala
 val rdd = sc.parallelize(Seq("aa bb","cc dd","ee ff"),2)
 //mapPartitions 语法要求为 f: Iterator[T] => Iterator[U]
@@ -95,7 +98,8 @@ rdd.mapPartitions(part=>part.map(rec=>rec.split(" "))).collect().map(println(_))
 //所以结果是 [["aa","bb"],["cc","dd"],["ee","ff"]]
 ```
 
-***mapPartitionsWithIndex***  与mapPartitions类似,带有分区的index以供使用  
+##### mapPartitionsWithIndex  
+与mapPartitions类似,带有分区的index以供使用  
 ```scala
 val rdd = sc.parallelize(Seq("aa bb","cc dd","ee ff"),2)
 // mapPartitionsWithIndex 语法要求为 f: (Int, Iterator[T]) => Iterator[U]
@@ -103,7 +107,8 @@ rdd.mapPartitionsWithIndex((partIdx,part)=>part.map(rec=>(partIdx,rec))).collect
 //返回结果 (0,aa bb),(1,cc dd),(1,ee ff)
 ```
 
-***glom***  每个分区中的元素转换成Array[T],这样每个分区就只有一个数组元素Array[T]  
+##### glom  
+每个分区中的元素转换成Array[T],这样每个分区就只有一个数组元素Array[T]  
 ```scala
 var rdd = sc.makeRDD(1 to 10,3)
 //3个分区,glom结果3个Array[T] 每个Array[T]=分区下全部元素
@@ -112,7 +117,8 @@ rdd.glom().collect.map(x=>println(x))
 
 #### 输入与输出 多对一 (窄依赖)  
 
-***union*** 相同数据类型RDD进行合并，并不去重  
+##### union  
+相同数据类型RDD进行合并，并不去重  
 
 > 底层转为PartitionerAwareUnionRDD  
 
@@ -123,7 +129,8 @@ rdd.union(rdd2).map(rec=>rec.toString).collect().map(rec=>print(s"${rec} "))
 //返回结果 1 2 3 4 5 6 7 8 9 10 5 6 7 8 9 10 11 12 13 14 15
 ```
 
-***intersection*** 相同数据类型RDD进行合并，并去重  
+##### intersection  
+相同数据类型RDD进行合并，并去重  
 
 ```scala
 val rdd = sc.parallelize(1 to 10)
@@ -145,15 +152,20 @@ rdd.cartesian(rdd2).map(rec=>rec.toString).collect().map(rec=>print(s"${rec} "))
 
 #### 输出是输入的子集(窄依赖)  
 
-***filter*** 对RDD进行过滤操作   
-***distinct*** 对RDD进行去重操作   
-***subtract*** RDD间进行减操作，去除相同数据元素   
-***sample/takeSample*** 对RDD进行采样操作   
+##### filter  
+对RDD进行过滤操作   
+##### distinct  
+对RDD进行去重操作   
+##### subtract  
+RDD间进行减操作，去除相同数据元素   
+##### sample & takeSample  
+对RDD进行采样操作   
 
 
-#### 输入与输出多对多(宽依赖)  
+#### 输入与输出 多对多(宽依赖)  
 
-***groupBy*** 将元素通过指定函数生成相应的Key,再按照Key进行分组  
+##### groupBy   
+将元素通过指定函数生成相应的Key,再按照Key进行分组  
 
 > 如果是为了聚合而进行的分组,请使用 reduceByKey/aggregateByKey   
 > groupBy 是纯粹的分组,因此无法在分组阶段提前聚合而导致会全量输出分组内容  
@@ -170,13 +182,26 @@ rdd.collect().map(rec=>print(s"${rec} "))
 
 ### Key-Value数据类型  
 
+> ByKey底层会转化为PairRDDFunctions[K, V]  
+```
+/**
+ * Extra functions available on RDDs of (key, value) pairs through an implicit conversion.
+ */
+class PairRDDFunctions[K, V](self: RDD[(K, V)])
+    (implicit kt: ClassTag[K], vt: ClassTag[V], ord: Ordering[K] = null)
+  extends Logging with Serializable {
+  ......
+```
+
 #### 一对一   
 
 #### 聚合   
 
 > 聚合都是多对多的宽依赖  
 
-***groupByKey*** 按Key进行分组  
+
+##### groupByKey   
+按Key进行分组  
 
 ```scala
 val rdd = sc.parallelize(Seq("aa bb","cc dd","bb cc"),2)
@@ -187,7 +212,8 @@ rdd
 //输出 (aa,1) (dd,1) (bb,2) (cc,2)
 ```
 
-***reduceByKey*** 按Key进行分组后,用指定的函数对每个Key的所有Value进行聚合  
+##### reduceByKey  
+按Key进行分组后,用指定的函数对每个Key的所有Value进行聚合  
 
 ```scala
 val rdd = sc.parallelize(Seq("aa bb","cc dd","bb cc"),2)
@@ -198,7 +224,7 @@ rdd
 //输出 (aa,1) (dd,1) (bb,2) (cc,2)
 ```
 
-***aggregateByKey***  
+##### aggregateByKey    
 给出一个默认基准值,先使用seqOp遍历分区内元素传入基准值进行聚合,再对分区间结果使用combOp聚合为最后结果  
 
 ```scala
@@ -213,7 +239,7 @@ rdd
   //输出 (aa,1) (dd,1) (bb,2) (cc,2)
 ```
 
-***combineByKey&combineByKeyWithClassTag***   
+##### combineByKey & combineByKeyWithClassTag   
 
 (*combineByKey是对历史版本的兼容,1.6.0版本已全体更新为combineByKeyWithClassTag*)  
 combineByKeyWithClassTag 算是一个比较核心的高级函数了.   
@@ -257,42 +283,14 @@ def combineByKeyWithClassTag[C](
     //输出:(aa,(aa,1)) (dd,(dd,1)) (bb,(bb,2)) (cc,(cc,2))
 ```
 
-***partitionBy***  
-
-***cogroup***  
-
-***sortByKey***  
-
 #### 连接   
 
 **map  flatMap mapPartitions mapPartitionsWithIndex filter** 等  
 
 
-#### ByKey系转换  
+#### 重要知识点 
 
-** *groupBy* groupByKey reduceByKey  aggregateByKey sortByKey**等  
-****
-ByKey系操作的特点  
-
-**重新分区=>宽依赖**  
-> ByKey 都会依据key来重新分区,这样往往会产生宽依赖  
-> 稍微有点特点的是 groupBy ,它默认是 HashPartitioner 来进行分区  
-
-**真正执行是在是executor**  
-> 也是将driver的分组操作闭包进行整理,序列化传输到executor,最终在executor进行执行  
-
-**ByKey底层会转化为PairRDDFunctions[K, V]**  
-```
-/**
- * Extra functions available on RDDs of (key, value) pairs through an implicit conversion.
- */
-class PairRDDFunctions[K, V](self: RDD[(K, V)])
-    (implicit kt: ClassTag[K], vt: ClassTag[V], ord: Ordering[K] = null)
-  extends Logging with Serializable {
-  ......
-```
-
-**groupByKey 与 reduceByKey 区别**  
+##### groupByKey 与 reduceByKey 区别  
 
 groupByKey 与 reduceByKey ,本身是不一样的.一个是分组,一个是分组聚合.  
 但如果用groupByKey来完成分组+聚合,就可能会有一定的性能问题.  
