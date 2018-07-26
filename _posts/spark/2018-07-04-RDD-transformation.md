@@ -43,7 +43,7 @@ Spark依据RDD转换中,父RDD和子RDD分区的依赖关系,将转换的依赖�
 
 宽依赖是指转换后,父RDD的某一个分区,会被多个子RDD的分区共同使用.(*多对一*)  
 
-宽依赖一般出现在groupByKey等会发生重分区的情况  
+宽依赖的本质是shuffle,所以一般出现在groupByKey,reduceByKey等会发生shuffle重分区的情况  
 
 ### 宽依赖与窄依赖的对比  
 
@@ -145,52 +145,128 @@ rdd.cartesian(rdd2).map(rec=>rec.toString).collect().map(rec=>print(s"${rec} "))
 
 #### 输出是输入的子集(窄依赖)  
 
-**filter distinct subtract sample takeSample**  
+***filter*** 对RDD进行过滤操作   
+***distinct*** 对RDD进行去重操作   
+***subtract*** RDD间进行减操作，去除相同数据元素   
+***sample/takeSample*** 对RDD进行采样操作   
+
 
 #### 输入与输出多对多(宽依赖)  
 
-**grouBy**
+***groupBy*** 将元素通过指定函数生成相应的Key,再按照Key进行分组  
+
+> 如果是为了聚合而进行的分组,请使用 reduceByKey/aggregateByKey   
+> groupBy 是纯粹的分组,因此无法在分组阶段提前聚合而导致会全量输出分组内容  
+> 详细在后面 group 与 reduceByKey 对比时详细讨论  
+
+```scala
+val rdd = sc.parallelize(1 to 10,3).map(x=>x.toString)
+//自定义按字符串 hashCode 分组
+rdd.groupBy(x=>x.hashCode)
+rdd.collect().map(rec=>print(s"${rec} "))
+```
 
 
 
+### Key-Value数据类型  
 
+#### 一对一   
 
-#### map系操作  
+#### 聚合   
+
+> 聚合都是多对多的宽依赖  
+
+***groupByKey*** 按Key进行分组  
+
+```scala
+val rdd = sc.parallelize(Seq("aa bb","cc dd","bb cc"),2)
+rdd
+  .flatMap(rec=>rec.split(" ")).map(rec=>(rec,1))
+  .groupByKey().map(x=>(x._1,x._2.sum))
+  .collect().map(rec=>print(s"${rec} "))
+//输出 (aa,1) (dd,1) (bb,2) (cc,2)
+```
+
+***reduceByKey*** 按Key进行分组后,用指定的函数对每个Key的所有Value进行聚合  
+
+```scala
+val rdd = sc.parallelize(Seq("aa bb","cc dd","bb cc"),2)
+rdd
+  .flatMap(rec=>rec.split(" ")).map(rec=>(rec,1))
+  .reduceByKey((value1,value2)=>value1+value2)
+  .collect().map(rec=>print(s"${rec} "))
+//输出 (aa,1) (dd,1) (bb,2) (cc,2)
+```
+
+***aggregateByKey***  
+给出一个默认基准值,先使用seqOp遍历分区内元素传入基准值进行聚合,再对分区间结果使用combOp聚合为最后结果  
+
+```scala
+  val rdd = sc.parallelize(Seq("aa bb", "cc dd", "bb cc"), 2)
+  rdd
+    .flatMap(rec => rec.split(" ")).map(rec => (rec, 1))
+    .aggregateByKey(0)(
+      seqOp = (u, t) => u + t,
+      combOp = (u1, u2) => u1 + u2
+    )
+    .collect().map(rec => print(s"${rec} "))
+  //输出 (aa,1) (dd,1) (bb,2) (cc,2)
+```
+
+***combineByKey&combineByKeyWithClassTag***   
+
+(*combineByKey是对历史版本的兼容,1.6.0版本已全体更新为combineByKeyWithClassTag*)  
+combineByKeyWithClassTag 算是一个比较核心的高级函数了.   
+说高级是因为前面的*groupByKey,reduceByKey,aggregateByKey* 框架内部都会转调它  
+
+来详细说说这个函数:  
+
+1. combineByKeyWithClassTag 是属于PairRDDFunctions扩展的高级方法  
+这意味着,只有[K,V]类型的RDD才有资格使用它  
+2. 分区  
+默认分区函数为 HashPartitioner,也可以通过参数传入自定义的Partitioner进行分区  
+3. 语法结构  
+```scala
+def combineByKeyWithClassTag[C](
+      createCombiner: V => C,
+      mergeValue: (C, V) => C,
+      mergeCombiners: (C, C) => C,
+      partitioner: Partitioner,
+      mapSideCombine: Boolean = true,
+      serializer: Serializer = null)
+```
+* combineByKeyWithClassTag会遍历分区中所有的元素,遍历过程中每个元素的Key要么已存在,要么不存在
+* createCombiner: V => C  
+遍历过程中如果元素的Key不存在,就会使用createCombiner函数来创建一个初始的基准值  
+* mergeValue: (C, V) => C  
+遍历过程中如果元素的Key已存在 就会用mergeValue函数去聚合 当前基准值(C) 和 当前元素(V)  
+* mergeCombiners: (C, C) => C  
+合并各个分区并按Key分组后, 合并相同分组(相同Key)的基准值,成为最终结果  
+4. WordCount 例子  
+
+```scala
+  type WordCount = (String, Int);
+  rdd
+    .flatMap(rec => rec.split(" ")).map(rec => (rec,rec))
+    .combineByKeyWithClassTag(
+      word => (word, 1),
+      (c:WordCount, v: String) => (c._1, c._2 + 1),
+      (c1:WordCount, c2:WordCount) => (c1._1, c1._2 + c2._2)
+    )
+    .collect().map(rec => print(s"${rec} "))
+    //输出:(aa,(aa,1)) (dd,(dd,1)) (bb,(bb,2)) (cc,(cc,2))
+```
+
+***partitionBy***  
+
+***cogroup***  
+
+***sortByKey***  
+
+#### 连接   
 
 **map  flatMap mapPartitions mapPartitionsWithIndex filter** 等  
 
-map系操作的特点是:  
-
-**真正执行是在是executor**  
-> 将driver的map操作闭包进行整理,序列化传输到executor,最终在executor进行执行  
-
-**默认不重新分区=>窄依赖**  
-> 默认保留以父RDD(*dependencies.head*)的分区  
-
-**底层转化使用MapPartitionsRDD**  
-```
-/**
- * An RDD that applies the provided function to every partition of the parent RDD.
- */
-private[spark] class MapPartitionsRDD[U: ClassTag, T: ClassTag](
-    var prev: RDD[T],
-    f: (TaskContext, Int, Iterator[T]) => Iterator[U],  // (TaskContext, partition index, iterator)
-    preservesPartitioning: Boolean = false)
-  extends RDD[U](prev) {
-
-  override val partitioner = if (preservesPartitioning) firstParent[T].partitioner else None
-
-  override def getPartitions: Array[Partition] = firstParent[T].partitions
-
-  override def compute(split: Partition, context: TaskContext): Iterator[U] =
-    f(context, split.index, firstParent[T].iterator(split, context))
-
-  override def clearDependencies() {
-    super.clearDependencies()
-    prev = null
-  }
-}
-```
 
 #### ByKey系转换  
 
