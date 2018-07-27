@@ -68,6 +68,110 @@ tag: hive
 | greatest(T v1, T v2, ...) | 返回指定值中最大的值 |
 | least(T v1, T v2, ...)  | 返回指定值中最小的值 |
 
+### 类型转换函数  
+
+| 使用 | 描述 |
+| ------ | ------ |
+| cast(expr as <type>) | 将 expr转换为<type>类型 |
+
+### 日期函数
+
+| 使用 | 描述 |
+| ------ | ------ |
+| from_unixtime(bigint unixtime[, string format]) | 将一个时间戳转换为指定格式的字符串,默认(yyyy-MM-dd) |
+| unix_timestamp() | 获取当前时间时间戳(秒) |
+| unix_timestamp(string date [, string pattern]) | 将一个pattern格式(默认yyyy-MM-dd hh:mm:ss)的字符串转换为时间戳 |
+| to_date(string timestamp) | 将一个时间戳转换为yyyy-MM-dd |
+| quarter(date/timestamp/string) | 返回日期、时间戳或范围为1到4的字符串的季度 |
+| year(string date) | 返回字符串日期的年 year("1970-01-01 00:00:00") = 1970, year("1970-01-01") = 1970 |
+| month(string date) | 返回字符串日期的月 |
+| day(string date) dayofmonth(date) | 返回字符串日期的天 |
+| hour(string date) | 返回字符串日期的小时 |
+| minute(string date) | 返回字符串日期的分钟 |
+| second(string date) | 返回字符串日期的秒 |
+| weekofyear(string date) | 返回字符串日期的星期几 |
+| extract(field FROM source)  | 从时间source中提取属性信息 |
+| datediff(string enddate, string startdate) | 返回两个日期差异的天数(记住第一个参数是结束日期,第二个参数是开始日期) |
+| date_add(date/timestamp/string startdate, tinyint/smallint/int days) | 返回指定日期加days天的日期 |
+| date_sub(date/timestamp/string startdate, tinyint/smallint/int days) | 返回指定日期减去days天的日期 |
+| current_date | 返回当前日期 |
+| current_timestamp | 返回当前日期时间戳 |
+
+### 条件函数
+
+| 使用 | 描述 |
+| ------ | ------ |
+| character_length(string str) | 返回字符串在UTF8编码下的长度 |
+| concat(string/binary A, string/binary B...) | 多个字符串拼接 |
+| concat_ws(string SEP, string A, string B...) | 多个字符串拼接,中间用SEP连接 |
+| split(string str, string pat) | 字符串用pa分割成多段数组 |
+| substr(string/binary A,int start[, int len]) | 字符串从start之后截取[len位], 从1开始,substr('foobar', 4)='bar' |
+
+## UDTF函数  
+
+UDTF函数语法限制  
+* 使用UDTF函数,不能再跟上其它的表达式 (禁止 UDTF(),其它列或表达式)  
+* UDTF函数不能再嵌套使用其它的UDTF函数  
+* UDTF函数不能再使用GROUP BY / CLUSTER BY / DISTRIBUTE BY / SORT BY
+
+### 常用UDTF函数  
+
+#### explode  
+将一个数组对象转换为多行记录,每行记录一列  
+语法 explode(ARRAY<T> a)   
+
+将一个Map对象转换为多行记录,每行记录有两列,[key,value]  
+语法: explode(MAP<Tkey,Tvalue> m)  
+
+
+#### posexplode  
+将一个数组对象转换为多行记录.每行记录有两列,[数组下标,值]   
+语法 posexplode(ARRAY<T> a)   
+
+#### inline  
+将一个数组结构体对象转换为多行记录,每行记录的列对应结构体的属性  
+语法 inline(ARRAY<STRUCT<f1:T1,...,fn:Tn>> a)   
+
+#### stack  
+
+语法 stack(int r,T1 V1,...,Tn/r Vn)   
+
+#### json_tuple  
+将一个Json字符串转换为多行数据,每行记录的列来自后续列指定k1...kn(只有后续指定的列才会读取)
+语法 json_tuple(string jsonStr,string k1,...,string kn)    
+
+#### parse_url_tuple  
+将一个URL地址字符串解析成单行多列信息  
+语法: parse_url_tuple(string urlStr,string p1,...,string pn)  
+实例:
+```sql
+parse_url_tuple('http://facebook.com/path1/p.php?k1=v1&k2=v2#Ref1','HOST', 'PATH', 'QUERY',  'QUERY:k1', 'QUERY:k2')
+
+-- facebook.com　　/path1/p.php　　k1=v1&k2=v2　　v1　　v2
+```
+
+## UDAF函数  
+
+#### sum  
+#### count  
+#### ......  
+更多函数见官网 https://cwiki.apache.org/confluence/display/Hive/LanguageManual+UDF  
+
+
+# window函数  
+
+## OVER 字句  
+OVER 字句,可以使用在所有的标准聚合函数中(COUNT,SUM,MIN,MAX,AVG),或者特有分析函数(RANK|ROW_NUMBER.....)  
+并且在2.1.0之后,支持DISTINCT关键字和Over字句内嵌套标准聚合函数  
+
+
+## 示例  
+```sql
+COUNT(DISTINCT a) OVER (PARTITION BY c) --按c分组后,在每个分组内对a执行去重计数
+select* from  (
+  select  name,dept,age row_number()  over (patition by dept order by age) as idx from employee
+) as t where t.idx <=2 
+```
 
 # 自定义函数  
 
