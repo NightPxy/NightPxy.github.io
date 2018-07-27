@@ -9,7 +9,7 @@ baseurl: ""
 description: 个人技术博客
 meta_description: NightPxy
 motto: NightPxy 个人技术博客
-banner: 学而不思则罔，思而不学则殆。
+banner: 跪在坚持
 
 #permalink: /:categories/:year/:month/:day/:title/
 permalink: /:year/:month/:day/:title/
