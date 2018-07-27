@@ -56,7 +56,7 @@ Spark依据RDD转换中,父RDD和子RDD分区的依赖关系,将转换的依赖�
 窄依赖,计算的依赖的分区,利用率是100%的  
 宽依赖,因为依赖分区只有一部分的数据是属于它的,但也必须重新计算整个分区.(*属于其它分区的数据白计算的*)  
 
-## 常用转换分类  
+## 常用转换  
 
 ### Value数据类型  
 
@@ -130,7 +130,7 @@ rdd.union(rdd2).map(rec=>rec.toString).collect().map(rec=>print(s"${rec} "))
 ```
 
 ##### intersection  
-相同数据类型RDD进行合并，并去重  
+相同数据类型RDD进行合并,并去重  
 
 ```scala
 val rdd = sc.parallelize(1 to 10)
@@ -285,10 +285,46 @@ def combineByKeyWithClassTag[C](
 
 #### 连接   
 
-**map  flatMap mapPartitions mapPartitionsWithIndex filter** 等  
+> 连接操作 即可能产生窄依赖 也可能产生宽依赖  
+> 如果父RDD与子RDD的分区算法相同(比如都是默认的hash-partitioned) ,则最终产生窄依赖  
+> 如果父RDD与子RDD的分区算法不同,则需要按照新算法产生shuffle重分区,最终产生宽依赖  
+
+##### join  
+根据两个RDD的Key进行关联,没有关联上的数据将会丢失  
 
 
-#### 重要知识点 
+##### leftOutJoin & rightOutJoin  
+左外&右外关联.以左RDD(右RDD)为主进行关联,在另一边为匹配的将填充空值  
+
+
+##### fullOuterJoin  
+两个RDD 关联后的笛卡尔积  
+
+##### cogroup  
+将多个键值对RDD按Key合并在一起.合并为全数据(没有丢失)  
+与fullOuterJoin区别:多个RDD情况下,cogroup按key合并为一个,fullOuterJoin为多个的笛卡尔积  
+注意,如果某个数据集少某一个key,合并时是在这个数据集的位置上占CompactBuffer()的位置,而不是直接跳过  
+
+```scala
+val rdd = sc.parallelize(Seq("a b")).flatMap(rec => rec.split(" ")).map(rec => (rec, rec));
+val rdd2 = sc.parallelize(Seq("b c")).flatMap(rec => rec.split(" ")).map(rec => (rec, rec));
+rdd.cogroup(rdd2).collect().map(rec => print(s"${rec} |"))
+//(b,(CompactBuffer(b),CompactBuffer(b))) |(a,(CompactBuffer(a),CompactBuffer())) |(c,(CompactBuffer(),CompactBuffer(c))) |
+```
+
+**cogroup是RDD所有连接操作的基石**  
+> RDD的大部分连接操作底层都是用过 cogroup 实现的  
+> 这意味着,其实都是先按Key合并为全数据,再按照不同的连接条件进行过滤  
+> join 过滤保留*结果左右值* 都存在的  
+> leftOuterJoin(rightOutJoin) 过滤保留 *结果左(右)值*存在的  
+> fullOuterJoin 过滤保留*结果左右值* 都存在的,然后做一次笛卡尔积组合
+
+##### subtractByKey  
+根据两个RDD的Key进行关联,然后去除已关联上的只保留未关联上的
+
+---
+
+#### 重要 
 
 ##### groupByKey 与 reduceByKey 区别  
 
@@ -305,4 +341,26 @@ groupByKey 与 reduceByKey ,本身是不一样的.一个是分组,一个是分�
 分组+聚合 wordsRDD.groupByKey().map(t => (t._1, t._2.sum))  
 > 分组和聚合是拆成两个独立的操作. 这导致分组时因为不知道聚合逻辑而无法进行map聚合.  
 > 所以分组的map输出是全部输出.这会带来高IO的性能损失
+
+
+### 转换分区调整
+
+#### coalesce   
+重新调整RDD的分区后形成一个新的RDD.  
+语法要求:numPartitions: Int, shuffle: Boolean = false  
+* numPartitions表示要重新调整的分区数量
+* shuffle表示重新调整分区时是否允许发生shuffle过程
+
+#### coalesce调整分区与shuffle  
+
+* 如果子分区数往下减少,则子分区数设置一定会成功.  
+但要注意,在这种情况下会造成任务的并行度降低(分区数,任务数降了),任务内存更容易爆出(单个任务的数据增大了)  
+* 如果子分区数往上增加,则子分区数设置必须要设置shuffle=true,才会成功,否则子分区依然等于父分区   
+
+重分区不一定会产生shuffle.比如减少分区的窄依赖  但是如果是增大分区,则必须依靠shuffle  
+谨记原则:**如果没有shuffle的参与,RDD只能减少分区(窄依赖),不能增加分区**  
+
+#### repartition  
+只是coalesce的shuffle等于true的快捷方式. coalesce(numPartitions, shuffle = true)  
+
 
