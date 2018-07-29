@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "RDD的transformation"
-date:   2018-07-04 13:31:01 +0800
+date:   2018-07-05 13:31:01 +0800
 categories: spark
 tag: spark
 ---
@@ -55,6 +55,33 @@ Spark依据RDD转换中,父RDD和子RDD分区的依赖关系,将转换的依赖�
 * 在某个分区发生错误需要重新计算的时候.实际是对依赖的分区进行计算(*宽窄皆同*),但是:  
 窄依赖,计算的依赖的分区,利用率是100%的  
 宽依赖,因为依赖分区只有一部分的数据是属于它的,但也必须重新计算整个分区.(*属于其它分区的数据白计算的*)  
+
+## spark shuffle 过程  
+
+### 简述  
+shuffle过程就是不同节点不同分区的数据进行重新分组分区的过程(详见Hadoop-MapReduce篇)   
+shuffle过程本身是一个代价很高的过程,因为它涉及不同节点不同executor的数据复制  
+
+Spark的某些操作可能会引起shuffle过程  
+以reducevByKey为例,需要将原始数据中相同的Key分为同一组,而对某一组的数据而言,其可能来自不同的节点不同的分区  
+
+### spark shuffle 与 hadoop shuffle  
+spark shuffle 与 hadoop shuffle 是非常类似的,只是在某些细节上稍有不同  
+
+hadoop的shuffle结果是分区有序的,且分区内还会按照Key进行排序  
+spark的shuffle结果还是分区有序,但分区内的Key无序  
+
+要对spark的shuffle分区内再排序,有以下方法:  
+* mapPartitions 再在每个分区上再使用.sort排序  
+* repartitionAndSortWithinPartitions  重建分区,并排序  
+* sortBy提前对RDD本身做一个全范围排序  
+
+### RDD中会引起shuffle的操作  
+
+* RDD重分区中,如果是调大分区,则必然使用shuffle  
+* _ByKey之类的聚合操作,也会使用shuffle  
+* RDD转换中,如果与父RDD采用不同的分区策略,则也会产生shuffle  
+
 
 ## 常用转换  
 
@@ -343,7 +370,7 @@ groupByKey 与 reduceByKey ,本身是不一样的.一个是分组,一个是分�
 > 所以分组的map输出是全部输出.这会带来高IO的性能损失
 
 
-### 转换分区调整
+### 分区调整
 
 #### coalesce   
 重新调整RDD的分区后形成一个新的RDD.  
