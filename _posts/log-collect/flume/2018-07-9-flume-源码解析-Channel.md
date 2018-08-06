@@ -189,7 +189,7 @@ protected void doCommit() throws InterruptedException {
       }
       //channel的内存控制信号量bytesRemaining释放takelist.byteSize
       bytesRemaining.release(takeByteCounter);
-      //清空两个缓冲区的byteSize的计数器(个人觉得这里三句应该放入锁块中,嘻嘻)
+      //清空两个缓冲区的byteSize的计数器(个人觉得这里两句应该放入锁块中,嘻嘻)
       takeByteCounter = 0;
       putByteCounter = 0;
 
@@ -209,6 +209,34 @@ protected void doCommit() throws InterruptedException {
         channelCounter.addToEventTakeSuccessCount(takes);
       }
       // 最后标记下 commit 之后当前 channel.queue 的event数量
+      channelCounter.setChannelSize(queue.size());
+    }
+```
+
+### void doRollback()
+
+```java
+//rollback逻辑与commit刚好相反
+//如果take rollback 表示Sink放弃这次读取 
+//  则takelist数据全部重新回到channel.queue
+//如果put rollback 表示Source放弃这次写入
+//  这个处理简单 清空putlist就可以了
+protected void doRollback() {
+      int takes = takeList.size();
+      synchronized(queueLock) {
+        //锁下将takelist数据重新回滚到channel.queue中
+        Preconditions.checkState(queue.remainingCapacity() >= takeList.size(), "Not enough space in memory channel " +
+            "queue to rollback takes. This should never happen, please report");
+        while(!takeList.isEmpty()) {
+          queue.addFirst(takeList.removeLast());
+        }
+        putList.clear();
+      }
+      bytesRemaining.release(putByteCounter);
+      putByteCounter = 0;
+      takeByteCounter = 0;
+
+      queueStored.release(takes);
       channelCounter.setChannelSize(queue.size());
     }
 ```
