@@ -1,8 +1,8 @@
 ---
 layout: post
 title:  "flume-源码解析-Sink"
-date:   2018-07-10 13:31:01 +0800
-categories: flume
+date:   2018-07-12 13:31:01 +0800
+categories: collect
 tag: [flume,源码解析]
 ---
 
@@ -10,14 +10,24 @@ tag: [flume,源码解析]
 {:toc}
 
 
-# 核心流程  
+## 核心流程  
 
 Sink核心流程是 SinkRunner 不断调用 SinkProcessor的Process方法  
 * 根据配置的 SinkProcessor,会使用不同的策略来选择 Sink.  
 SinkProcessor 有3种,默认DefaultSinkProcessor
 * 调用选择 Sink 的 Process 方法  
 
-# 核心方法-Process  
+## HDFSEventSink 分析 
+
+### 类定义  
+
+```java
+public class HDFSEventSink extends AbstractSink
+```
+
+### Process方法  
+
+由架构章得知,Sink最重要的是process方法,Sink的实际处理就是由SinkRunner不断调用sink.process来完成的
 
 **HDFSEventSink** 的 *Process* 源码如下
 
@@ -31,6 +41,7 @@ SinkProcessor 有3种,默认DefaultSinkProcessor
    */
   public Status process() throws EventDeliveryException {
     Channel channel = getChannel();
+    //每一次process过程,就是一个完整的事务块
     Transaction transaction = channel.getTransaction();
     List<BucketWriter> writers = Lists.newArrayList();
     transaction.begin();
@@ -42,13 +53,17 @@ SinkProcessor 有3种,默认DefaultSinkProcessor
           break;
         }
 
-        // reconstruct the path name by substituting place holders
+        // 计算出写到HDFS的两个关键属性 filepath 和 filename
         String realPath = BucketPath.escapeString(filePath, event.getHeaders(),
             timeZone, needRounding, roundUnit, roundValue, useLocalTime);
         String realName = BucketPath.escapeString(fileName, event.getHeaders(),
           timeZone, needRounding, roundUnit, roundValue, useLocalTime);
-
+        //计算出写入HDFS的绝对路径
+        //DIRECTORY_DELIMITER 其实System.getProperty("file.separator")
+        //取出操作系统的默认文件分割符
         String lookupPath = realPath + DIRECTORY_DELIMITER + realName;
+        
+        
         BucketWriter bucketWriter;
         HDFSWriter hdfsWriter = null;
         // Callback to remove the reference to the bucket writer from the
@@ -67,6 +82,7 @@ SinkProcessor 有3种,默认DefaultSinkProcessor
           bucketWriter = sfWriters.get(lookupPath);
           // we haven't seen this file yet, so open it and cache the handle
           if (bucketWriter == null) {
+            //fileType: SequenceFile、DataStream、CompressedStream 三种HdfsWriter
             hdfsWriter = writerFactory.getWriter(fileType);
             bucketWriter = initializeBucketWriter(realPath, realName,
               lookupPath, hdfsWriter, closeCallback);
@@ -108,6 +124,7 @@ SinkProcessor 有3种,默认DefaultSinkProcessor
         bucketWriter.flush();
       }
 
+      //直到所有内容都写到HDFS中,则提交事务,表示本次输出全部完毕
       transaction.commit();
 
       if (txnEventCount < 1) {
@@ -121,6 +138,7 @@ SinkProcessor 有3种,默认DefaultSinkProcessor
       LOG.warn("HDFS IO error", eIO);
       return Status.BACKOFF;
     } catch (Throwable th) {
+      //异常回滚事务
       transaction.rollback();
       LOG.error("process failed", th);
       if (th instanceof Error) {

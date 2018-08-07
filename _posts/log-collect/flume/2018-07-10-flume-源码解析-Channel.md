@@ -1,73 +1,78 @@
 ---
 layout: post
 title:  "flume-源码解析-Channel"
-date:   2018-07-9 13:31:01 +0800
-categories: flume
+date:   2018-07-10 13:31:01 +0800
+categories: collect
 tag: [flume,源码解析]
 ---
 
 * content
 {:toc}
 
-# 版本
 
-基于 Flume CDH 版  
-版本号: flume-ng-1.6.0-cdh5.7.0  
+## 概述
 
-# 核心流程  
+由Flume架构得知,一个Channel需要实现Channel BasicTransactionSemantics
 
-## ChannelProcessor  
 
-ChannelProcessor 公开将 Event 放入到 Channel 的所有操作  
+## MemoryChannel 的分析  
 
-## BasicChannelSemantics  
+## MemoryChannel 主类  
 
-BasicChannelSemantics 是定义Channel的抽象类接口.  
-它定义了 Channel 所应有的操作方法.  
-它的核心方法两个 put take,分别对应Channel的两大核心操作:存入数据 取出数据  
+**类声明**  
 
-* 事务性
-在基类中这两大操作本身是事务性的,在基类中说明这种事务性是涵盖所有的Channel的,具体稍后讨论 
-* Channel 的操作,实质是桥接的 transaction 的操作  
+由前章Flume源码架构得知,一个Channel是必须实现自 org.apache.flume.Channel  
+在MemoryChannel类定义就是继承 BasicChannelSemantics  
+
+前文已经说过,这里本质上是组合模式设计,将Channel的逻辑整体拆分 通道自身维护和通道事务的 put/get 操作两大部分
+
+所以 MemoryChannel 主类就是负责通道自身维护以及如何产生一个事务块,具体如下  
+* 产生一个事务块  
+* 通道的Event数据容器  
+* 通道并发锁  
+* 内存资源锁(Memory通道特有)  
+
 ```java
-public void put(Event event) throws ChannelException {
-    BasicTransactionSemantics transaction = currentTransaction.get();
-    Preconditions.checkState(transaction != null,
-        "No transaction exists for this thread");
-    transaction.put(event);
-  }
-
-public Event take() throws ChannelException {
-    BasicTransactionSemantics transaction = currentTransaction.get();
-    Preconditions.checkState(transaction != null,
-        "No transaction exists for this thread");
-    return transaction.take();
-  }
+public class MemoryChannel extends BasicChannelSemantics {
+    //通道数据载体,在MemoryChannel就是存在内存中的LinkedBlockingDeque<Event>
+    private LinkedBlockingDeque<Event> queue;
+    //通道的并发锁,  
+    private Object queueLock = new Object();
+    //通道的内存剩余资源锁,这里使用的是一个Semaphore
+    private Semaphore queueRemaining;
+    //通道的内存已占用资源锁,....
+    private Semaphore queueStored;
+    //通道的Event数量计数器
+    private ChannelCounter channelCounter;
+    
+    .....
+    
+    //在MemoryChannel定义一个内部类负责通道事务的 put/get 操作 下面详述
+    private class MemoryTransaction extends BasicTransactionSemantics {
+        ...
+    }
+}
 ```
-事务的通用手法:二次提交  
-数据放入临时缓冲区putlist(事务区),最后由commit检查是否已有足够的缓冲区到Channel.有则二次提交事务区内数据到Channel,没有则回滚(清空)事务区
 
-# 核心方法
+## MemoryTransaction
 
-以 **MemoryChannel** 为例  
+在MemoryChannel中,定义了通道自身的维护,包括数据容器,锁等   
+在MemoryTransaction中,定义了通道的put/take事务操作过程  
 
+### 事务的一般处理手段   
 
+处理事务的一般处理手段,就是二次提交思路  大体步骤为  
+* 事务块数据第一次提交至暂存区  
+* 全部处理成功后,由暂存区二次提交至目标区,如果中途失败,将回滚暂存区  
 
-## Transaction
-
-从 BasicChannelSemantics 知道,Channel 操作的实质是桥接的 Transaction 操作  
-
-实现抽象类BasicTransactionSemantics  
-提供对put take 的事务性操作  
-
-MemoryChannel 中, 定义了内部类 MemoryTransaction,实质完成了 MemoryChannel 的操作  
+在Flume的事务处理中,也是基于的这种思路  
 
 ### 核心属性
 
 * LinkedBlockingDeque<Event> takeList  
-Take操作的临时缓冲区  
+Take操作的临时事务区  
 * LinkedBlockingDeque<Event> putList  
-Put操作的临时缓冲区  
+Put操作的临时事务区  
 * final ChannelCounter channelCounter  
 用于记录 channel 当前 event 数量的线程安全计数器   
 * putByteCounter 
@@ -75,6 +80,25 @@ putList的eventByteSize总计
 * takeByteCounter
 takeList的eventByteSize总计  
 
+### Tran的两条调用线  
+
+就是由 BasicTransactionSemantics 定义要求用户实现的4个方法  
+* doPut  
+* doTake   
+* doCommit   
+* doRollback  
+
+由架构章节得知,Channel是整个Flume的中心地位.逻辑都是围绕Channel进行展开的,所以Channel的这四个方法,其实是分作两条调用线的  
+* doPut -> doCommit/doRollback 
+这是Source到Channel的调用线.
+Source读取到数据,然后channel.put(doput)提交到缓冲区   
+完毕后commit(缓冲区数据到Channel)或rollback(清空缓冲区)  
+* doTake -> doCommit/doRollback 
+这是Channel到Sink的调用线  
+有Sink调用channel.take拉取数据,每一个从take拉取的数据都会进入缓冲区  
+Sink输出完毕后,commit(清空缓冲区)或rollback(缓冲区数据重新回到Channel)
+
+详细描述如下  
 
 ### void  doPut(Event event)  
 
@@ -135,14 +159,13 @@ protected void doPut(Event event) throws InterruptedException {
 ### void doCommit()  
 
 ```java
-//真正提交事务区数据到Channel putlist放入queue再清空takelist
-//对于 take.commit Sink已经调用take取出数据.(取出数据留存takelist)
-//  此时的commit 代表Sink确认success 就是简单的清空缓冲区
 //对于 put.commit Source已经调用put将数据全部写入putlist
 //  此时的commit就是确保 从putlist写到channel.queue
+//对于 take.commit Sink已经调用take取出数据.(取出数据留存takelist)
+//  此时的commit 代表Sink确认success 就是简单的清空缓冲区
 protected void doCommit() throws InterruptedException {
       /**
-      * putlist放入queue再清空takelist 正常的处理逻辑是 
+      * 对于 put.commit 正常的处理逻辑是 
       * 首先回收takelist.size 然后再申请 putlist.size 
       * 这里它用了一个技巧性的写法 让回收和申请合并为一步操作
       * 这个技巧性写法就是比较 申请(putlist.size)与释放(takelist.size)的容量查
