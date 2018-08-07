@@ -2,7 +2,7 @@
 layout: post
 title:  "flume-源码解析-Source至Channel"
 date:   2018-07-09 13:31:01 +0800
-categories: flume
+categories: collect
 tag: [flume,源码解析]
 ---
 
@@ -13,7 +13,6 @@ tag: [flume,源码解析]
 ## Source -> Channel   
 
 
-
 ### ChannelSelector  
 
 org.apache.flume.ChannelSelector
@@ -21,11 +20,12 @@ org.apache.flume.ChannelSelector
 ### ChannelProcessor  
 
 org.apache.flume.channel.ChannelProcessor
-
-从一个Source提交数据到Channel的处理实质是由 ChannelProcessor 完成   
-
-它依赖于org.apache.flume.ChannelSelector,代表该Source下涵盖哪些Channel  
-它负责Source-Events -> Channels的骨干逻辑,比如拦截器执行,Channel批量事务等    
+Flume 由Source采集数据,但是Source采集到数据,最终是需要交给Channel  
+这个由Source到Channel的过程  就是由 ChannelProcessor 负责处理.具体如下  
+* 负责对一个或多个Channel数据提交的抽象实现  
+* 负责提交触发器的执行  
+* 负责事务过程处理,包括处理提交,回滚等  
+* 负责Channel选择器策略的执行等等   
 
 **核心逻辑**
 
@@ -39,15 +39,15 @@ public void processEventBatch(List<Event> events) {
     //触发器的执行
     events = interceptorChain.intercept(events);
 
-    //必须队列和可选队列的读取暂存数据块(每个channel独立一个)
-    //键是目标channel实例,值是需要写入该channel的events
+    //必须通道和可选通道的读取暂存数据块(每个通道独立一个)
+    //键是目标通道实例,值是需要写入该通道的eventslist
     Map<Channel, List<Event>> reqChannelQueue =
         new LinkedHashMap<Channel, List<Event>>();
 
     Map<Channel, List<Event>> optChannelQueue =
         new LinkedHashMap<Channel, List<Event>>();
 
-    //遍历 events,写入每个channel的暂存数据块eventQueue
+    //遍历 events,写入每个通道的暂存数据块eventQueue
     for (Event event : events) {
       List<Channel> reqChannels = selector.getRequiredChannels(event);
       for (Channel ch : reqChannels) {
@@ -70,17 +70,17 @@ public void processEventBatch(List<Event> events) {
       }
     }
 
-    // 处理必须队列的数据提交
-    // 必须队列是同事务提交,必须队列中出现任意问题都会回滚全部必须队列
-    // executeChannelTransaction 事务提交方法见下
+    // 处理必须通道的数据提交
+    // 必须通道是同事务提交,其中中出现任意问题都会回滚全部通道
+    // 详见 executeChannelTransaction 事务提交方法
     for (Channel reqChannel : reqChannelQueue.keySet()) {
       List<Event> batch = reqChannelQueue.get(reqChannel);
       executeChannelTransaction(reqChannel, batch, false);
     }
 
-    // 处理可选队列的数据提交
-    // 可选队列是独立事务提交,即出现任何问题会回滚该队列数据,但不会影响其它队列
-    // OptionalChannelTransactionRunnable 可选队列的数据提交还是以异步线程的形式
+    // 处理可选通道的数据提交
+    // 可选通道是独立事务提交,即出现任何问题会回滚该通道数据,但不会影响其它通道
+    // OptionalChannelTransactionRunnable 可选通道的数据提交还是以异步线程的形式
     for (Channel optChannel : optChannelQueue.keySet()) {
       List<Event> batch = optChannelQueue.get(optChannel);
       execService.submit(new OptionalChannelTransactionRunnable(optChannel, batch));
