@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "RDD的transformation"
+title:  "RDD-transformation"
 date:   2018-07-05 13:31:01 +0800
 categories: spark
 tag: spark

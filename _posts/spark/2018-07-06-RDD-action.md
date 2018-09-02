@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "Spark-Action"
+title:  "RDD-Action"
 date:   2018-07-06 13:31:01 +0800
 categories: spark
 tag: spark
