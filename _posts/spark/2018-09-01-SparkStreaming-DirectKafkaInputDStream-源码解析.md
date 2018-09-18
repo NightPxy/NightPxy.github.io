@@ -264,8 +264,16 @@ def createDirectStream[K, V](
 
 
 
-
-
+```scala
+@transient private var kc: Consumer[K, V] = null
+  def consumer(): Consumer[K, V] = this.synchronized {
+    if (null == kc) {
+      kc = consumerStrategy.onStart(currentOffsets.mapValues(l => new java.lang.Long(l)).asJava)
+    }
+    kc
+  }
+```
+根据前面指定的消费者实例策略
 
 
 
