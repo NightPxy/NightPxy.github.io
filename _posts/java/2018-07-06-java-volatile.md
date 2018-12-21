@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "java-volatile"
-date:   2018-07-04 13:31:01 +0800
+date:   2018-07-06 13:31:01 +0800
 categories: java
 tag: [java,多线程]
 ---
