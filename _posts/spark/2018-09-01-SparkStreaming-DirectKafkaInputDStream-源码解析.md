@@ -259,22 +259,59 @@ def createDirectStream[K, V](
 可以看见spark已经默认设计了一个限速策略,就是读取配置中设置的最大抓取条数  
 `spark.streaming.kafka.maxRatePerPartition` 如果为0,表示不限速
 
-### CanCommitOffsets
 
-
-
+#### latestOffsets 中分区感知  
 
 ```scala
-@transient private var kc: Consumer[K, V] = null
-  def consumer(): Consumer[K, V] = this.synchronized {
-    if (null == kc) {
-      kc = consumerStrategy.onStart(currentOffsets.mapValues(l => new java.lang.Long(l)).asJava)
-    }
-    kc
-  }
-```
-根据前面指定的消费者实例策略
+protected def latestOffsets(): Map[TopicPartition, Long] = {
+    val c = consumer
+    paranoidPoll(c)
+    val parts = c.assignment().asScala
 
+    // make sure new partitions are reflected in currentOffsets
+    val newPartitions = parts.diff(currentOffsets.keySet)
+    // position for new partitions determined by auto.offset.reset if no commit
+    currentOffsets = currentOffsets ++ newPartitions.map(tp => tp -> c.position(tp)).toMap
+    // don't want to consume messages, so pause
+    c.pause(newPartitions.asJava)
+    // find latest available offsets
+    c.seekToEnd(currentOffsets.keySet.asJava)
+    parts.map(tp => tp -> c.position(tp)).toMap
+  }
+  
+override def compute(validTime: Time): Option[KafkaRDD[K, V]] = {
+    val untilOffsets = clamp(latestOffsets())
+    val offsetRanges = untilOffsets.map { case (tp, uo) =>
+      val fo = currentOffsets(tp)
+      OffsetRange(tp.topic, tp.partition, fo, uo)
+    }
+    val useConsumerCache = context.conf.getBoolean("spark.streaming.kafka.consumer.cache.enabled",
+      true)
+    val rdd = new KafkaRDD[K, V](context.sparkContext, executorKafkaParams, offsetRanges.toArray,
+      getPreferredHosts, useConsumerCache)
+
+    // Report the record number and metadata of this batch interval to InputInfoTracker.
+    val description = offsetRanges.filter { offsetRange =>
+      // Don't display empty ranges.
+      offsetRange.fromOffset != offsetRange.untilOffset
+    }.map { offsetRange =>
+      s"topic: ${offsetRange.topic}\tpartition: ${offsetRange.partition}\t" +
+        s"offsets: ${offsetRange.fromOffset} to ${offsetRange.untilOffset}"
+    }.mkString("\n")
+    // Copy offsetRanges to immutable.List to prevent from being modified by the user
+    val metadata = Map(
+      "offsets" -> offsetRanges.toList,
+      StreamInputInfo.METADATA_KEY_DESCRIPTION -> description)
+    val inputInfo = StreamInputInfo(id, rdd.count, metadata)
+    ssc.scheduler.inputInfoTracker.reportInfo(validTime, inputInfo)
+
+    currentOffsets = untilOffsets
+    commitAll()
+    Some(rdd)
+  }  
+```  
+
+可以看见Spark的Kafka分区感知机制就是记录上一次的分区信息并与当前作比对,如果有不同就将其加入currentOffsets, 然后再compute中重新在根据Kafka分区再创建对应RDD  
 
 
 
