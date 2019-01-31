@@ -40,3 +40,109 @@ Spark数据源的核心
 * Relation BaseRelation  
 * JDBC-RDD的分区实现  
 * SQL再包装分页语句  
+
+## HBase  
+
+### CRUD 
+
+### Spark  
+利用`org.apache.hadoop.hbase.mapreduce.TableInputFormat` 和 `org.apache.hadoop.hbase.mapreduce.TableOutputFormat` 来读写HBase
+
+读  
+支持列裁剪,行过滤只支持RowKey范围  
+
+```scala
+val hbaseConf = HBaseConfiguration.create()
+hbaseConf.set(TableInputFormat.INPUT_TABLE, options.table)
+hbaseConf.set(TableInputFormat.SCAN_COLUMNS, queryColumns);
+hbaseConf.set(TableInputFormat.SCAN_ROW_START, startRowKey);
+hbaseConf.set(TableInputFormat.SCAN_ROW_STOP, endRowKey);
+
+val hbaseRdd = sqlContext.sparkContext.newAPIHadoopRDD(
+  hbaseConf,
+  classOf[org.apache.hadoop.hbase.mapreduce.TableInputFormat],
+  classOf[org.apache.hadoop.hbase.io.ImmutableBytesWritable],
+  classOf[org.apache.hadoop.hbase.client.Result]
+)
+val reolver = new HBaseRowResolver(hbaseTableSchema)
+hbaseRdd.map(tuple => tuple._2).map(reolver.resultToRow(_))
+```
+写
+
+写的时候必须注意三排序  即首先多条数据之间按照RowKey升序,每条数据内部按照列族升序序,列族内再按照列升序的方式完成排序后进行写入  
+
+```scala
+val hbaseConf = HBaseConfiguration.create()
+
+hbaseConf.setInt("hbase.mapreduce.bulkload.max.hfiles.perRegion.perFamily", 1024);
+hbaseConf.set(TableOutputFormat.OUTPUT_TABLE, options.table)
+
+
+val sortSchemas = data.schema.filter(x => x != keyColumn).sortBy(x => x.name).map(x=> {
+  val c = HBaseSchemaResolver.resolveColumn(x.name)
+  HBaseSchema(c._1,Bytes.toBytes(c._1),c._2,Bytes.toBytes(c._2),x.dataType)
+})
+
+val job = Job.getInstance()
+job.setMapOutputKeyClass(classOf[ImmutableBytesWritable])
+job.setMapOutputValueClass(classOf[KeyValue])
+job.setOutputFormatClass(classOf[HFileOutputFormat2])
+
+usingPattern(ConnectionFactory.createConnection(hbaseConf))(conn => {
+  val tableName = TableName.valueOf(options.table)
+  val regionLocator = conn.getRegionLocator(tableName)
+  val table = conn.getTable(tableName)
+  HFileOutputFormat2.configureIncrementalLoad(job, table, regionLocator)
+})
+```
+
+## Spring的各种原理  
+
+## 线程池原理和一个轻量级线程池
+
+## 缓存
+
+### 缓存穿透  
+
+### 缓存雪崩  
+
+## 高并发架构    
+
+数据库问题,写入,读写分离  
+缓存
+负载均衡,异步处理与并行处理
+
+
+### 服务器优化的常规思路  
+
+* 空间换时间  
+对热点数据缓存，减少数据查询时间  
+* 分而治之   
+将大任务切片，分开执行。HDFS、MapReduce就是这个原理  
+* 异步处理  
+若业务链中有某一环节耗时严重，则该环节将拉长业务链的整体耗时。可以将耗时业务采用消息队列异步化，从而缩短业务链耗时  
+* 并行处理   
+采用多进程、多线程同时处理，提升处理速度  
+* 离用户更近一点  
+如CDN技术，将静态资源放到离用户更近的地方，从而缩短请求静态资源的时间  
+* 提升可扩展性  
+采用业务模块化、服务化的手段，提升系统的可扩展性，从而可根据业务需求实现弹性计算
+
+CPU 
+CPU使用率过高的原因：
+
+计算量大
+非空闲等待
+过多的系统调用
+过多的中断
+内存 
+内存使用率过高的原因：
+
+过多的页交换
+可能存在内存泄露
+IO 
+IO繁忙的原因：
+
+读写频繁 
+磁盘的读写过程是物理动作，频繁的读写势必会使IO来不及处理。
+https://zhuanlan.zhihu.com/p/34266039
