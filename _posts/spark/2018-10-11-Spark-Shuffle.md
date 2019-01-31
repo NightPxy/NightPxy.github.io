@@ -90,9 +90,10 @@ bypass的核心思想是
 
 #### SerializedShuffleHandle   
 
-序列化Shuffle是Spark常规意义上的解决方案(bypass的200分区限制实际太低了)  
+序列化Shuffle现在还是不可用方案(Spark内部关闭了,堆外排序还在实验阶段)   
 序列化Shuffle作用于二进制数据而不是java对象本身  
 使用序列化的好处在于  
+
 * 减少了内存消耗和GC开销  
 * 使用专门的高效排序器(ShuffleExternalSorter)进行排序  
 它内部的排序数组对每条数据只使用8字节,可以容纳更多的数据  
@@ -100,8 +101,7 @@ bypass的核心思想是
 
 #### BaseShuffleHandle
 
-BaseShuffleHandle是shuffle最终解决方案  
-无论是bypass或序列化都是有一些或大或小的使用条件的,但BaseShuffleHandle没有,它可以处理任何情况  
+BaseShuffleHandle是shuffle常规意义上的解决方案 
 
 整个Map端的Shuffle过程就是一个LSM算法  
 * Map阶段分块分段(受内存限制)读取,溢写文件到磁盘(溢写文件内保持Key有序)  
@@ -123,10 +123,6 @@ override def registerShuffle[K, V, C](
       // Bypass使用条件  
       // 1.分区少于 sparle.shuff.sort.bypassMergeThreshold (默认200)
       // 2.无聚合场景(没有使用聚合算子)
-      // need map-side aggregation, then write numPartitions files directly and just concatenate
-      // them at the end. This avoids doing serialization and deserialization twice to merge
-      // together the spilled files, which would happen with the normal code path. The downside is
-      // having multiple files open at a time and thus more memory allocated to buffers.
       new BypassMergeSortShuffleHandle[K, V](
         shuffleId, numMaps, dependency.asInstanceOf[ShuffleDependency[K, V, V]])
     } else if (SortShuffleManager.canUseSerializedShuffle(dependency)) {
@@ -136,6 +132,8 @@ override def registerShuffle[K, V, C](
       //       也就是可以在无需反序列化的前提下完成排序  
       // 2. 无聚合场景
       // 3. 分区数量在16777215(2的23次)以内
+      // 4. dependency.serializer.supportsRelocationOfSerializedObjects  
+      //    事实上这个条件固定为false,序列化Shuffle所用的堆外排序还在实验中
       new SerializedShuffleHandle[K, V](
         shuffleId, numMaps, dependency.asInstanceOf[ShuffleDependency[K, V, V]])
     } else {
