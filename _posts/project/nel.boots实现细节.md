@@ -33,3 +33,10 @@ KafkaMQ的特点是批量消息(TopicPartition,TopicPartition-Offset提交),所�
 * 处理完成后,自动的OffSet管理  
 以TopicPartition为单位提交Offset.  `Map( callback.topicPartition -> new org.apache.kafka.clients.consumer.OffsetAndMetadata(callback.lastOffset + 1))` 构建 目标topicPartition + (目标最终lastOffset+1)
 通过 `commitAsync` 提交  
+
+## 自定义JDBC数据源  
+
+Spark数据源的核心  
+* Relation BaseRelation  
+* JDBC-RDD的分区实现  
+* SQL再包装分页语句  
