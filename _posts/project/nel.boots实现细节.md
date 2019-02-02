@@ -197,3 +197,9 @@ https://zhuanlan.zhihu.com/p/34266039
 
 
 Flume 架构 双层意义  
+
+https://blog.csdn.net/bluishglc/article/details/83790964
+
+
+
+--元数据管理,数据开发测试工具与方法,数据质量,主数据管理
