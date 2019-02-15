@@ -28,7 +28,7 @@ static class Entry extends WeakReference<ThreadLocal<?>> {
 }
 ```
 
-ThreadLocal最核心的主题就是`WeakReference<ThreadLocal<?>>`.也就是说ThreadLocal的本质是一个以线程对象为键,值中再包含一个Hash的弱引用大Hash  
+ThreadLocal最核心的主题就是`WeakReference<ThreadLocal<?>>`.也就是说ThreadLocal的本质是一个以线程对象为键,值中再包含一个Hash的弱引用哈希表  
 
 
 ## ThreadLocal内存泄露  
@@ -43,8 +43,7 @@ ThreadLocal最核心的主题就是`WeakReference<ThreadLocal<?>>`.也就是说T
 使用弱引用的目的就在这里,JDK期望当线程消亡时伴随Thread线程对象的消失时,ThreadLocal中也能自动被GC  
 
 其次,线程对象因为弱引用被GC后,ThreadLocal中的值会不会有问题  
-很遗憾,从个人的理解上这里的确是有点问题,但不至于是内存泄露这么严重  
-事实上,JDK自己已经意识到这里有问题了.它们对此采取了一个补救措施,就是在每次get的时候都会从尽可能的删除null键.(只要删除null键就会失去对其引用就会被正常GC了),但这个补救措施其实相当弱  
+这里的确是有点问题,JDK对此采取了一个补救措施,就是在每次get的时候都会从删除null键.(null是因为弱引用回收了)   
 
 ```java
 private Entry getEntry(ThreadLocal<?> key) {
@@ -72,13 +71,11 @@ private Entry getEntryAfterMiss(ThreadLocal<?> key, int i, Entry e) {
      }
      return null;
  }
-``` 
+```
 
 * 首先从ThreadLocal的直接索引位置(通过ThreadLocal.threadLocalHashCode & (len-1)运算得到)获取Entry e，如果e不为null并且key相同则返回e
 * 如果e为null或者key不一致则向下一个位置查询，如果下一个位置的key和当前需要查询的key相等，则返回对应的Entry，否则，如果key值为null，则擦除该位置的Entry，否则继续向下一个位置查询  
-这补救措施很弱是因为只有读取到null才会向下遍历清除null键,并且这种遍历一旦匹配就会停止  
-这意味着这个补救措施只能挽回一部分的泄露内存.  
+  这补救措施很弱是因为只有读取到null才会向下遍历清除null键  
 
 最好的解决办法是开发者自己来  
 * ThreadLocal是提供remove方法的,最好的解决办法是.如果自己不再需要时手动remove掉  
-* 
